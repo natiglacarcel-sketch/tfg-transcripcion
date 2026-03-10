@@ -1,0 +1,12 @@
+version: '3.8'
+services:
+  whisper:
+    image: evilfreelancer/whisper-server:latest
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./audio:/app/audio
+    environment:
+      - MODEL=tiny
+    restart: unless-stopped
+
