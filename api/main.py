@@ -24,7 +24,7 @@ def ejecutar_comando(comando, cwd=None):
 def sincronizar_git():
     resultados = {}
 
-    add_result = ejecutar_comando(["git", "add", "data/output"], cwd=BASE_DIR)
+    add_result = ejecutar_comando(["git", "add", "data/input", "data/output"], cwd=BASE_DIR)
     resultados["git_add"] = {
         "returncode": add_result.returncode,
         "stderr": add_result.stderr.strip()
