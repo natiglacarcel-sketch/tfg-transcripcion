@@ -11,4 +11,5 @@ services:
     volumes:
       - .:/app:Z
       - /var/run/docker.sock:/var/run/docker.sock
+      - /home/nati/.ssh:/root/.ssh:ro,Z
     restart: unless-stopped
