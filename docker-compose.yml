@@ -1,9 +1,10 @@
-version: '3.9'
+version: "3.9"
+
 services:
   api:
     build:
       context: .
-      dockerfile: /api/Dockerfile
+      dockerfile: api/Dockerfile
     container_name: tfg_api
     ports:
       - "8000:8000"
