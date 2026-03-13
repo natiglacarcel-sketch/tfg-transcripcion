@@ -99,8 +99,7 @@ def transcribir(file: UploadFile = File(...)):
     "--output_dir", "/srv/files/data/output",
     "--language", "es",
     "--model", "small",
-    "--compute_type", "int8",
-    "--output_format", "txt,srt"
+    "--compute_type", "int8"
 ]
 
     resultado = subprocess.run(comando, capture_output=True, text=True)
