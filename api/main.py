@@ -92,15 +92,16 @@ def transcribir(file: UploadFile = File(...)):
         shutil.copyfileobj(file.file, buffer)
 
     comando = [
-        "docker", "run", "--rm",
-        "-v", f"{BASE_DIR}:/srv/files:Z",
-        "whisper-local",
-        f"/srv/files/data/input/{file.filename}",
-        "--output_dir", "/srv/files/data/output",
-        "--language", "es",
-        "--model", "small",
-        "--compute_type", "int8"
-    ]
+    "docker", "run", "--rm",
+    "-v", f"{BASE_DIR}:/srv/files:Z",
+    "whisper-local",
+    f"/srv/files/data/input/{file.filename}",
+    "--output_dir", "/srv/files/data/output",
+    "--language", "es",
+    "--model", "small",
+    "--compute_type", "int8",
+    "--output_format", "txt,srt"
+]
 
     resultado = subprocess.run(comando, capture_output=True, text=True)
 
