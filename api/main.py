@@ -1,4 +1,5 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi.responses import PlainTextResponse
 from pathlib import Path
 import shutil
 import subprocess
@@ -8,6 +9,52 @@ app = FastAPI(title="Servidor de Transcripción TFG")
 BASE_DIR = Path("/app")
 INPUT_DIR = BASE_DIR / "data" / "input"
 OUTPUT_DIR = BASE_DIR / "data" / "output"
+
+
+def ejecutar_comando(comando, cwd=None):
+    resultado = subprocess.run(
+        comando,
+        cwd=cwd,
+        capture_output=True,
+        text=True
+    )
+    return resultado
+
+
+def sincronizar_git():
+    resultados = {}
+
+    add_result = ejecutar_comando(
+        ["git", "add", "data/input", "data/output"],
+        cwd=BASE_DIR
+    )
+    resultados["git_add"] = {
+        "returncode": add_result.returncode,
+        "stdout": add_result.stdout.strip(),
+        "stderr": add_result.stderr.strip()
+    }
+
+    commit_result = ejecutar_comando(
+        ["git", "commit", "-m", "Añadidos audio y transcripción automática desde API"],
+        cwd=BASE_DIR
+    )
+    resultados["git_commit"] = {
+        "returncode": commit_result.returncode,
+        "stdout": commit_result.stdout.strip(),
+        "stderr": commit_result.stderr.strip()
+    }
+
+    push_result = ejecutar_comando(
+        ["git", "push"],
+        cwd=BASE_DIR
+    )
+    resultados["git_push"] = {
+        "returncode": push_result.returncode,
+        "stdout": push_result.stdout.strip(),
+        "stderr": push_result.stderr.strip()
+    }
+
+    return resultados
 
 
 @app.get("/ping")
@@ -29,6 +76,16 @@ def listar_archivos():
     }
 
 
+@app.get("/transcripcion/{nombre}", response_class=PlainTextResponse)
+def ver_transcripcion(nombre: str):
+    ruta_txt = OUTPUT_DIR / nombre
+
+    if not ruta_txt.exists() or not ruta_txt.is_file():
+        raise HTTPException(status_code=404, detail="Transcripción no encontrada")
+
+    return ruta_txt.read_text(encoding="utf-8")
+
+
 @app.post("/transcribir")
 def transcribir(file: UploadFile = File(...)):
 
@@ -37,11 +94,11 @@ def transcribir(file: UploadFile = File(...)):
 
     destino = INPUT_DIR / file.filename
 
-    # guardar archivo subido
+    # Guardar archivo subido
     with destino.open("wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
 
-    # comando de transcripción
+    # Ejecutar whisper-local en Docker
     comando = [
         "docker", "run", "--rm",
         "-v", f"{BASE_DIR}:/srv/files:Z",
@@ -50,7 +107,8 @@ def transcribir(file: UploadFile = File(...)):
         "--output_dir", "/srv/files/data/output",
         "--language", "es",
         "--model", "small",
-        "--compute_type", "int8"
+        "--compute_type", "int8",
+        "--output_format", "all"
     ]
 
     resultado = subprocess.run(comando, capture_output=True, text=True)
@@ -65,11 +123,28 @@ def transcribir(file: UploadFile = File(...)):
         )
 
     nombre_sin_ext = Path(file.filename).stem
-    salida_txt = OUTPUT_DIR / f"{nombre_sin_ext}.txt"
+
+    archivos_generados = {
+        "txt": (OUTPUT_DIR / f"{nombre_sin_ext}.txt").exists(),
+        "srt": (OUTPUT_DIR / f"{nombre_sin_ext}.srt").exists(),
+        "vtt": (OUTPUT_DIR / f"{nombre_sin_ext}.vtt").exists(),
+        "tsv": (OUTPUT_DIR / f"{nombre_sin_ext}.tsv").exists(),
+        "json": (OUTPUT_DIR / f"{nombre_sin_ext}.json").exists(),
+    }
+
+    if not archivos_generados["txt"]:
+        raise HTTPException(
+            status_code=500,
+            detail="La transcripción terminó pero no se encontró el archivo TXT de salida"
+        )
+
+    git_resultados = sincronizar_git()
 
     return {
         "ok": True,
         "archivo_entrada": file.filename,
-        "archivo_salida": salida_txt.name,
-        "existe_salida": salida_txt.exists()
+        "archivo_base": nombre_sin_ext,
+        "archivos_generados": archivos_generados,
+        "url_transcripcion": f"/transcripcion/{nombre_sin_ext}.txt",
+        "git": git_resultados
     }
