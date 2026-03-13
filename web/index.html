@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Servidor de Transcripción TFG</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 40px;
+      background: #f5f7fa;
+      color: #222;
+    }
+
+    .container {
+      max-width: 800px;
+      margin: auto;
+      background: white;
+      padding: 24px;
+      border-radius: 12px;
+      box-shadow: 0 4px 14px rgba(0,0,0,0.08);
+    }
+
+    h1 {
+      margin-top: 0;
+      color: #1f4d8f;
+    }
+
+    p {
+      line-height: 1.5;
+    }
+
+    .bloque {
+      margin-top: 24px;
+      padding: 18px;
+      border: 1px solid #ddd;
+      border-radius: 10px;
+      background: #fafafa;
+    }
+
+    label {
+      font-weight: bold;
+      display: block;
+      margin-bottom: 10px;
+    }
+
+    input[type="file"] {
+      margin-bottom: 12px;
+    }
+
+    button {
+      background: #1f4d8f;
+      color: white;
+      border: none;
+      padding: 10px 18px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 15px;
+    }
+
+    button:hover {
+      background: #163966;
+    }
+
+    button:disabled {
+      background: #9aa8b8;
+      cursor: not-allowed;
+    }
+
+    .estado {
+      margin-top: 12px;
+      font-weight: bold;
+    }
+
+    .resultado {
+      margin-top: 20px;
+      padding: 16px;
+      border-radius: 10px;
+      background: #eef5ff;
+      border: 1px solid #c9dcf8;
+      white-space: pre-wrap;
+    }
+
+    .enlaces {
+      margin-top: 12px;
+    }
+
+    .enlaces a {
+      display: inline-block;
+      margin-right: 12px;
+      margin-top: 8px;
+      color: #1f4d8f;
+      text-decoration: none;
+      font-weight: bold;
+    }
+
+    .enlaces a:hover {
+      text-decoration: underline;
+    }
+
+    .error {
+      margin-top: 16px;
+      padding: 12px;
+      background: #ffe9e9;
+      color: #a11;
+      border: 1px solid #e5b1b1;
+      border-radius: 8px;
+      white-space: pre-wrap;
+    }
+
+    .footer {
+      margin-top: 30px;
+      font-size: 13px;
+      color: #666;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Servidor de Transcripción TFG</h1>
+    <p>
+      Interfaz web simple para subir un audio, transcribirlo con Whisper y descargar
+      los resultados generados por la API.
+    </p>
+
+    <div class="bloque">
+      <label for="audioFile">Selecciona un archivo de audio</label>
+      <input type="file" id="audioFile" accept=".wav,.mp3,.m4a,.flac,.ogg,.webm">
+      <br>
+      <button id="btnTranscribir">Transcribir</button>
+      <div class="estado" id="estado">Esperando archivo...</div>
+      <div class="error" id="error" style="display:none;"></div>
+    </div>
+
+    <div class="bloque" id="bloqueResultado" style="display:none;">
+      <h2>Resultado</h2>
+      <div id="infoResultado"></div>
+      <div class="enlaces" id="enlacesResultado"></div>
+      <div class="resultado" id="textoResultado"></div>
+    </div>
+
+    <div class="footer">
+      TFG - Sistema de Transcripción Automática con Whisper, Docker y FastAPI
+    </div>
+  </div>
+
+  <script>
+    const API_BASE = "http://192.168.1.40:8000";
+
+    const btnTranscribir = document.getElementById("btnTranscribir");
+    const audioFile = document.getElementById("audioFile");
+    const estado = document.getElementById("estado");
+    const errorDiv = document.getElementById("error");
+    const bloqueResultado = document.getElementById("bloqueResultado");
+    const infoResultado = document.getElementById("infoResultado");
+    const enlacesResultado = document.getElementById("enlacesResultado");
+    const textoResultado = document.getElementById("textoResultado");
+
+    function mostrarError(mensaje) {
+      errorDiv.style.display = "block";
+      errorDiv.textContent = mensaje;
+    }
+
+    function ocultarError() {
+      errorDiv.style.display = "none";
+      errorDiv.textContent = "";
+    }
+
+    btnTranscribir.addEventListener("click", async () => {
+      ocultarError();
+      bloqueResultado.style.display = "none";
+      textoResultado.textContent = "";
+      enlacesResultado.innerHTML = "";
+      infoResultado.innerHTML = "";
+
+      if (!audioFile.files.length) {
+        mostrarError("Debes seleccionar un archivo de audio.");
+        return;
+      }
+
+      const file = audioFile.files[0];
+      const formData = new FormData();
+      formData.append("file", file);
+
+      try {
+        btnTranscribir.disabled = true;
+        estado.textContent = "Subiendo archivo y transcribiendo...";
+
+        const response = await fetch(`${API_BASE}/transcribir`, {
+          method: "POST",
+          body: formData
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(JSON.stringify(data, null, 2));
+        }
+
+        estado.textContent = "Transcripción completada.";
+        bloqueResultado.style.display = "block";
+
+        infoResultado.innerHTML = `
+          <p><strong>Archivo de entrada:</strong> ${data.archivo_entrada}</p>
+          <p><strong>Archivo base:</strong> ${data.archivo_base}</p>
+        `;
+
+        const txtName = data.archivos_generados?.txt || `${data.archivo_base}.txt`;
+        const srtName = data.archivos_generados?.srt || `${data.archivo_base}.srt`;
+
+        enlacesResultado.innerHTML = `
+          <a href="${API_BASE}${data.url_txt}" target="_blank">Ver transcripción TXT</a>
+          <a href="${API_BASE}${data.url_descarga_txt}" target="_blank">Descargar TXT</a>
+          <a href="${API_BASE}${data.url_descarga_srt}" target="_blank">Descargar SRT</a>
+        `;
+
+        const txtResponse = await fetch(`${API_BASE}/transcripcion/${txtName}`);
+        const txtContent = await txtResponse.text();
+        textoResultado.textContent = txtContent;
+
+      } catch (error) {
+        estado.textContent = "Error durante la transcripción.";
+        mostrarError(error.message);
+      } finally {
+        btnTranscribir.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>
