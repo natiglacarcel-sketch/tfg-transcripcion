@@ -1,18 +1,14 @@
-FROM python:3.11-slim
+version: "3.9"
 
-WORKDIR /app
-
-# Instalar cliente Docker
-RUN apt-get update && apt-get install -y docker.io && rm -rf /var/lib/apt/lists/*
-
-# Copiar requirements
-COPY api/requirements.txt /app/api/requirements.txt
-
-# Instalar dependencias Python
-RUN pip install --no-cache-dir -r /app/api/requirements.txt
-
-# Copiar el proyecto completo
-COPY . /app
-
-# Arrancar la API
-CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+services:
+  api:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    container_name: tfg_api
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app:Z
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped
