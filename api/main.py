@@ -1,14 +1,15 @@
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.responses import PlainTextResponse, FileResponse
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pathlib import Path
-import shutil
 import subprocess
 from typing import Dict
 
 app = FastAPI(
     title="Servidor de Transcripción TFG",
-    version="1.0.0"
+    version="1.0.0",
+    description="API REST para transcripción automática de audio con Whisper y Docker"
 )
 
 app.add_middleware(
@@ -22,6 +23,7 @@ app.add_middleware(
 BASE_DIR = Path("/app")
 INPUT_DIR = BASE_DIR / "data" / "input"
 OUTPUT_DIR = BASE_DIR / "data" / "output"
+WEB_DIR = BASE_DIR / "web"
 
 ALLOWED_EXTENSIONS = {".wav", ".mp3", ".m4a", ".flac", ".ogg", ".webm"}
 MAX_FILE_SIZE_BYTES = 100 * 1024 * 1024  # 100 MB
@@ -39,6 +41,7 @@ def ejecutar_comando(comando, cwd=None):
 def asegurar_directorios():
     INPUT_DIR.mkdir(parents=True, exist_ok=True)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    WEB_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def extension_permitida(nombre_archivo: str) -> bool:
@@ -68,8 +71,6 @@ def sincronizar_git() -> Dict:
         "stderr": commit_result.stderr.strip()
     }
 
-    # Si no hay cambios, git commit suele devolver código != 0.
-    # No lo consideramos fatal, porque puede ocurrir en ejecuciones repetidas.
     push_result = ejecutar_comando(
         ["git", "push"],
         cwd=BASE_DIR
@@ -86,6 +87,16 @@ def sincronizar_git() -> Dict:
 @app.on_event("startup")
 def startup_event():
     asegurar_directorios()
+
+
+@app.get("/")
+def servir_index():
+    index_path = WEB_DIR / "index.html"
+
+    if not index_path.exists():
+        raise HTTPException(status_code=404, detail="index.html no encontrado")
+
+    return FileResponse(index_path)
 
 
 @app.get("/ping")
@@ -146,7 +157,6 @@ def transcribir(file: UploadFile = File(...)):
 
     destino = INPUT_DIR / file.filename
 
-    # Guardar archivo subido
     total_bytes = 0
     with destino.open("wb") as buffer:
         while True:
@@ -163,7 +173,6 @@ def transcribir(file: UploadFile = File(...)):
                 )
             buffer.write(chunk)
 
-    # Comando de transcripción
     comando = [
         "docker", "run", "--rm",
         "-v", f"{BASE_DIR}:/srv/files:Z",
@@ -223,3 +232,6 @@ def transcribir(file: UploadFile = File(...)):
         "url_descarga_srt": f"/descargar/{archivos_generados['srt']}",
         "git": git_resultados
     }
+
+
+app.mount("/web", StaticFiles(directory=WEB_DIR), name="web")
