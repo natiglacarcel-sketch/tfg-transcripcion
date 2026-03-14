@@ -197,14 +197,14 @@ def transcribir(file: UploadFile = File(...)):
             }
         )
 
-    nombre_base = Path(file.filename).stem
+    nombre_base = Path(file.filename).name
 
     archivos_generados = {
         "txt": f"{nombre_base}.txt",
         "srt": f"{nombre_base}.srt",
-        "vtt": f"{nombre_sin_base}.vtt",
-        "tsv": f"{nombre_sin_base}.tsv",
-        "json": f"{nombre_sin_base}.json",
+        "vtt": f"{nombre_base}.vtt",
+        "tsv": f"{nombre_base}.tsv",
+        "json": f"{nombre_base}.json",
     }
 
     existencia = {
@@ -216,9 +216,9 @@ def transcribir(file: UploadFile = File(...)):
         raise HTTPException(
             status_code=500,
             detail={
-            "mensaje": "La transcripción terminó pero no se encontró el archivo TXT de salida",
-            "esperado": archivos_generados["txt"],
-            "archivos_en_output": [f.name for f in OUTPUT_DIR.glob("*") if f.is_file()]
+                "mensaje": "La transcripción terminó pero no se encontró el archivo TXT de salida",
+                "esperado": archivos_generados["txt"],
+                "archivos_en_output": [f.name for f in OUTPUT_DIR.glob("*") if f.is_file()]
             }
         )
 
