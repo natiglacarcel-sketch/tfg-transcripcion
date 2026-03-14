@@ -191,7 +191,15 @@
           body: formData
         });
 
-        const data = await response.json();
+        let data;
+        const contentType = response.headers.get("content-type") || "";
+
+        if (contentType.includes("application/json")) {
+          data = await response.json();
+        } else {
+          const text = await response.text();
+          throw new Error(text);
+        }
 
         if (!response.ok) {
           throw new Error(JSON.stringify(data, null, 2));
@@ -202,19 +210,19 @@
 
         infoResultado.innerHTML = `
           <p><strong>Archivo de entrada:</strong> ${data.archivo_entrada}</p>
+          <p><strong>Tamaño:</strong> ${data.tamano_bytes} bytes</p>
           <p><strong>Archivo base:</strong> ${data.archivo_base}</p>
         `;
 
         const txtName = data.archivos_generados?.txt || `${data.archivo_base}.txt`;
-        const srtName = data.archivos_generados?.srt || `${data.archivo_base}.srt`;
 
         enlacesResultado.innerHTML = `
-          <a href="${API_BASE}${data.url_txt}" target="_blank">Ver transcripción TXT</a>
-          <a href="${API_BASE}${data.url_descarga_txt}" target="_blank">Descargar TXT</a>
-          <a href="${API_BASE}${data.url_descarga_srt}" target="_blank">Descargar SRT</a>
+          <a href="${data.url_txt}" target="_blank">Ver transcripción TXT</a>
+          <a href="${data.url_descarga_txt}" target="_blank">Descargar TXT</a>
+          <a href="${data.url_descarga_srt}" target="_blank">Descargar SRT</a>
         `;
 
-        const txtResponse = await fetch(`${API_BASE}/transcripcion/${txtName}`);
+        const txtResponse = await fetch(data.url_txt);
         const txtContent = await txtResponse.text();
         textoResultado.textContent = txtContent;
 
