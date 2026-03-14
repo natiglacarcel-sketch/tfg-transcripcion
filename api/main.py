@@ -197,7 +197,7 @@ def transcribir(file: UploadFile = File(...)):
             }
         )
 
-    nombre_base = Path(file.filename).name
+    nombre_base = Path(file.filename).stem
 
     archivos_generados = {
         "txt": f"{nombre_base}.txt",
