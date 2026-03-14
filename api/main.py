@@ -1,3 +1,4 @@
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.responses import PlainTextResponse, FileResponse
 from pathlib import Path
@@ -7,8 +8,15 @@ from typing import Dict
 
 app = FastAPI(
     title="Servidor de Transcripción TFG",
-    version="1.0.0",
-    description="API REST para transcripción automática de audio con Whisper y Docker"
+    version="1.0.0"
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 BASE_DIR = Path("/app")
