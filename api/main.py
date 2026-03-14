@@ -197,14 +197,14 @@ def transcribir(file: UploadFile = File(...)):
             }
         )
 
-    nombre_sin_ext = Path(file.filename).stem
+    nombre_base = Path(file.filename).stem
 
     archivos_generados = {
-        "txt": f"{nombre_sin_ext}.txt",
-        "srt": f"{nombre_sin_ext}.srt",
-        "vtt": f"{nombre_sin_ext}.vtt",
-        "tsv": f"{nombre_sin_ext}.tsv",
-        "json": f"{nombre_sin_ext}.json",
+        "txt": f"{nombre_base}.txt",
+        "srt": f"{nombre_base}.srt",
+        "vtt": f"{nombre_sin_base}.vtt",
+        "tsv": f"{nombre_sin_base}.tsv",
+        "json": f"{nombre_sin_base}.json",
     }
 
     existencia = {
@@ -215,7 +215,11 @@ def transcribir(file: UploadFile = File(...)):
     if not existencia["txt"]:
         raise HTTPException(
             status_code=500,
-            detail="La transcripción terminó pero no se encontró el archivo TXT de salida"
+            detail={
+            "mensaje": "La transcripción terminó pero no se encontró el archivo TXT de salida",
+            "esperado": archivos_generados["txt"],
+            "archivos_en_output": [f.name for f in OUTPUT_DIR.glob("*") if f.is_file()]
+            }
         )
 
     git_resultados = sincronizar_git()
@@ -224,7 +228,7 @@ def transcribir(file: UploadFile = File(...)):
         "ok": True,
         "archivo_entrada": file.filename,
         "tamano_bytes": total_bytes,
-        "archivo_base": nombre_sin_ext,
+        "archivo_base": nombre_base,
         "archivos_generados": archivos_generados,
         "existencia": existencia,
         "url_txt": f"/transcripcion/{archivos_generados['txt']}",
