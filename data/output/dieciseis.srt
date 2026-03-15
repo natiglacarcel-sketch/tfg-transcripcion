@@ -1,0 +1,8 @@
+1
+00:00:00,000 --> 00:00:05,280
+Sería probar si esto de verdad funciona. Este es un audio en el que quiero saber la
+
+2
+00:00:05,280 --> 00:00:10,760
+funcionalidad de todos los aplicaciones que pueda existir.
+
