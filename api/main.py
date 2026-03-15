@@ -10,7 +10,7 @@ import uuid
 
 app = FastAPI(
     title="Servidor de Transcripción TFG",
-    version="2.1.0",
+    version="2.2.0",
     description="API REST para transcripción automática de audio con Whisper y Docker"
 )
 
@@ -22,15 +22,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# IMPORTANTE:
+# La API y Whisper deben mirar exactamente la misma ruta de datos.
 BASE_DIR = Path("/srv/files")
 INPUT_DIR = BASE_DIR / "data" / "input"
 OUTPUT_DIR = BASE_DIR / "data" / "output"
+
+# La web sigue estando en /app porque el proyecto también está copiado ahí
 WEB_DIR = Path("/app/web")
 
 ALLOWED_EXTENSIONS = {".wav", ".mp3", ".m4a", ".flac", ".ogg", ".webm"}
 MAX_FILE_SIZE_BYTES = 100 * 1024 * 1024  # 100 MB
 
-# Trabajos en memoria
 JOBS = {}
 JOBS_LOCK = threading.Lock()
 
@@ -55,22 +58,15 @@ def extension_permitida(nombre_archivo: str) -> bool:
 
 
 def sincronizar_git():
-    # No tratamos commit sin cambios como error fatal
-    ejecutar_comando(["git", "add", "data/input", "data/output"], cwd=BASE_DIR)
+    ejecutar_comando(["git", "add", "data/input", "data/output"], cwd="/app")
     ejecutar_comando(
         ["git", "commit", "-m", "Añadidos audio y transcripción automática desde API"],
-        cwd=BASE_DIR
+        cwd="/app"
     )
-    ejecutar_comando(["git", "push"], cwd=BASE_DIR)
+    ejecutar_comando(["git", "push"], cwd="/app")
 
 
 def esperar_salida(nombre_base: str, timeout: int = 90, pausa: float = 2.0):
-    """
-    Espera a que aparezca el TXT en data/output.
-    Devuelve un dict con:
-      - encontrado: bool
-      - archivos: lista de archivos detectados
-    """
     inicio = time.time()
 
     while time.time() - inicio < timeout:
@@ -137,7 +133,6 @@ def procesar_transcripcion(job_id: str, filename: str):
 
         nombre_base = Path(filename).stem
 
-        # pequeña pausa inicial
         time.sleep(2)
 
         resultado_espera = esperar_salida(nombre_base, timeout=90, pausa=2.0)
@@ -156,6 +151,7 @@ def procesar_transcripcion(job_id: str, filename: str):
             )
             return
 
+        # Puedes comentar esta línea temporalmente si quieres aislar problemas
         sincronizar_git()
 
         fin = time.time()
