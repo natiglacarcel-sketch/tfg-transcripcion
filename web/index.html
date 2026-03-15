@@ -13,7 +13,7 @@
     }
 
     .container {
-      max-width: 800px;
+      max-width: 850px;
       margin: auto;
       background: white;
       padding: 24px;
@@ -113,14 +113,47 @@
       font-size: 13px;
       color: #666;
     }
+
+    .pill {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: bold;
+      margin-left: 8px;
+    }
+
+    .pendiente {
+      background: #fff4cc;
+      color: #8a6d00;
+    }
+
+    .procesando {
+      background: #d9ecff;
+      color: #0b5aa2;
+    }
+
+    .completado {
+      background: #daf5dc;
+      color: #1d6b24;
+    }
+
+    .error-pill {
+      background: #ffe1e1;
+      color: #a11;
+    }
+
+    .mono {
+      font-family: Consolas, monospace;
+    }
   </style>
 </head>
 <body>
   <div class="container">
     <h1>Servidor de Transcripción TFG</h1>
     <p>
-      Interfaz web simple para subir un audio, transcribirlo con Whisper y descargar
-      los resultados generados por la API.
+      Interfaz web simple para subir un audio, crear un trabajo de transcripción y
+      consultar su estado hasta obtener el resultado.
     </p>
 
     <div class="bloque">
@@ -128,7 +161,9 @@
       <input type="file" id="audioFile" accept=".wav,.mp3,.m4a,.flac,.ogg,.webm">
       <br>
       <button id="btnTranscribir">Transcribir</button>
+
       <div class="estado" id="estado">Esperando archivo...</div>
+      <div class="estado" id="jobInfo"></div>
       <div class="error" id="error" style="display:none;"></div>
     </div>
 
@@ -150,6 +185,7 @@
     const btnTranscribir = document.getElementById("btnTranscribir");
     const audioFile = document.getElementById("audioFile");
     const estado = document.getElementById("estado");
+    const jobInfo = document.getElementById("jobInfo");
     const errorDiv = document.getElementById("error");
     const bloqueResultado = document.getElementById("bloqueResultado");
     const infoResultado = document.getElementById("infoResultado");
@@ -166,12 +202,62 @@
       errorDiv.textContent = "";
     }
 
+    function estadoHtml(estadoTrabajo) {
+      if (estadoTrabajo === "pendiente") {
+        return `<span class="pill pendiente">pendiente</span>`;
+      }
+      if (estadoTrabajo === "procesando") {
+        return `<span class="pill procesando">procesando</span>`;
+      }
+      if (estadoTrabajo === "completado") {
+        return `<span class="pill completado">completado</span>`;
+      }
+      return `<span class="pill error-pill">error</span>`;
+    }
+
+    async function esperarResultado(jobId) {
+      const maxIntentos = 120; // aprox 4 min consultando cada 2 segundos
+      let intentos = 0;
+
+      while (intentos < maxIntentos) {
+        const responseEstado = await fetch(`${API_BASE}/estado/${jobId}`);
+        const estadoData = await responseEstado.json();
+
+        if (!responseEstado.ok) {
+          throw new Error(JSON.stringify(estadoData, null, 2));
+        }
+
+        estado.innerHTML = `Estado del trabajo: ${estadoHtml(estadoData.estado)}`;
+
+        if (estadoData.estado === "completado") {
+          const responseResultado = await fetch(`${API_BASE}/resultado/${jobId}`);
+          const resultadoData = await responseResultado.json();
+
+          if (!responseResultado.ok) {
+            throw new Error(JSON.stringify(resultadoData, null, 2));
+          }
+
+          return resultadoData;
+        }
+
+        if (estadoData.estado === "error") {
+          throw new Error(JSON.stringify(estadoData.error || estadoData, null, 2));
+        }
+
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        intentos += 1;
+      }
+
+      throw new Error("Tiempo de espera agotado. El trabajo sigue sin completarse.");
+    }
+
     btnTranscribir.addEventListener("click", async () => {
       ocultarError();
       bloqueResultado.style.display = "none";
       textoResultado.textContent = "";
       enlacesResultado.innerHTML = "";
       infoResultado.innerHTML = "";
+      jobInfo.innerHTML = "";
 
       if (!audioFile.files.length) {
         mostrarError("Debes seleccionar un archivo de audio.");
@@ -184,7 +270,7 @@
 
       try {
         btnTranscribir.disabled = true;
-        estado.textContent = "Subiendo archivo y transcribiendo...";
+        estado.textContent = "Creando trabajo de transcripción...";
 
         const response = await fetch(`${API_BASE}/transcribir`, {
           method: "POST",
@@ -205,24 +291,29 @@
           throw new Error(JSON.stringify(data, null, 2));
         }
 
-        estado.textContent = "Transcripción completada.";
+        const jobId = data.job_id;
+        jobInfo.innerHTML = `<span class="mono">job_id: ${jobId}</span>`;
+
+        estado.innerHTML = `Estado del trabajo: ${estadoHtml(data.estado)}`;
+
+        const resultado = await esperarResultado(jobId);
+
+        estado.innerHTML = `Estado del trabajo: ${estadoHtml("completado")}`;
         bloqueResultado.style.display = "block";
 
         infoResultado.innerHTML = `
-          <p><strong>Archivo de entrada:</strong> ${data.archivo_entrada}</p>
-          <p><strong>Tamaño:</strong> ${data.tamano_bytes} bytes</p>
-          <p><strong>Archivo base:</strong> ${data.archivo_base}</p>
+          <p><strong>Archivo de entrada:</strong> ${resultado.archivo_entrada}</p>
+          <p><strong>Archivo base:</strong> ${resultado.archivo_base}</p>
+          <p><strong>Duración:</strong> ${resultado.duracion_segundos ?? "N/D"} segundos</p>
         `;
-
-        const txtName = data.archivos_generados?.txt || `${data.archivo_base}.txt`;
 
         enlacesResultado.innerHTML = `
-          <a href="${data.url_txt}" target="_blank">Ver transcripción TXT</a>
-          <a href="${data.url_descarga_txt}" target="_blank">Descargar TXT</a>
-          <a href="${data.url_descarga_srt}" target="_blank">Descargar SRT</a>
+          <a href="${resultado.urls.txt}" target="_blank">Ver transcripción TXT</a>
+          <a href="${resultado.urls.descarga_txt}" target="_blank">Descargar TXT</a>
+          <a href="${resultado.urls.descarga_srt}" target="_blank">Descargar SRT</a>
         `;
 
-        const txtResponse = await fetch(data.url_txt);
+        const txtResponse = await fetch(resultado.urls.txt);
         const txtContent = await txtResponse.text();
         textoResultado.textContent = txtContent;
 
