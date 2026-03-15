@@ -22,10 +22,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-BASE_DIR = Path("/app")
+BASE_DIR = Path("/srv/files")
 INPUT_DIR = BASE_DIR / "data" / "input"
 OUTPUT_DIR = BASE_DIR / "data" / "output"
-WEB_DIR = BASE_DIR / "web"
+WEB_DIR = Path("/app/web")
 
 ALLOWED_EXTENSIONS = {".wav", ".mp3", ".m4a", ".flac", ".ogg", ".webm"}
 MAX_FILE_SIZE_BYTES = 100 * 1024 * 1024  # 100 MB
