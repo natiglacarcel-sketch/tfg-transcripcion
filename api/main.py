@@ -4,12 +4,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 import subprocess
+import threading
 import time
-from typing import Dict
+import uuid
 
 app = FastAPI(
     title="Servidor de Transcripción TFG",
-    version="1.2.0",
+    version="2.0.0",
     description="API REST para transcripción automática de audio con Whisper y Docker"
 )
 
@@ -27,7 +28,11 @@ OUTPUT_DIR = BASE_DIR / "data" / "output"
 WEB_DIR = BASE_DIR / "web"
 
 ALLOWED_EXTENSIONS = {".wav", ".mp3", ".m4a", ".flac", ".ogg", ".webm"}
-MAX_FILE_SIZE_BYTES = 100 * 1024 * 1024
+MAX_FILE_SIZE_BYTES = 100 * 1024 * 1024  # 100 MB
+
+# Almacenamiento simple en memoria para trabajos
+JOBS = {}
+JOBS_LOCK = threading.Lock()
 
 
 def ejecutar_comando(comando, cwd=None):
@@ -49,23 +54,26 @@ def extension_permitida(nombre_archivo: str) -> bool:
     return Path(nombre_archivo).suffix.lower() in ALLOWED_EXTENSIONS
 
 
+def sincronizar_git():
+    # No consideramos fatal que commit no tenga cambios
+    ejecutar_comando(["git", "add", "data/input", "data/output"], cwd=BASE_DIR)
+    ejecutar_comando(
+        ["git", "commit", "-m", "Añadidos audio y transcripción automática desde API"],
+        cwd=BASE_DIR
+    )
+    ejecutar_comando(["git", "push"], cwd=BASE_DIR)
+
+
 def esperar_salida(nombre_base: str, timeout: int = 40):
-    """
-    Espera hasta que aparezca el archivo TXT generado por Whisper.
-    Evita errores de sincronización en el primer intento.
-    """
     inicio = time.time()
 
     while time.time() - inicio < timeout:
-
         archivos = [
             f.name for f in OUTPUT_DIR.glob(f"{nombre_base}.*")
             if f.is_file()
         ]
-
         if f"{nombre_base}.txt" in archivos:
             return archivos
-
         time.sleep(1)
 
     return [
@@ -74,16 +82,90 @@ def esperar_salida(nombre_base: str, timeout: int = 40):
     ]
 
 
-def sincronizar_git() -> Dict:
+def actualizar_job(job_id: str, **campos):
+    with JOBS_LOCK:
+        if job_id in JOBS:
+            JOBS[job_id].update(campos)
 
-    ejecutar_comando(["git", "add", "data/input", "data/output"], cwd=BASE_DIR)
-    ejecutar_comando(
-        ["git", "commit", "-m", "Añadidos audio y transcripción automática desde API"],
-        cwd=BASE_DIR
-    )
-    ejecutar_comando(["git", "push"], cwd=BASE_DIR)
 
-    return {"git": "ok"}
+def procesar_transcripcion(job_id: str, filename: str):
+    try:
+        actualizar_job(job_id, estado="procesando", inicio=time.time())
+
+        comando = [
+            "docker", "run", "--rm",
+            "-v", f"{BASE_DIR}:/srv/files:Z",
+            "whisper-local",
+            f"/srv/files/data/input/{filename}",
+            "--output_dir", "/srv/files/data/output",
+            "--language", "es",
+            "--model", "small",
+            "--compute_type", "int8",
+            "--output_format", "all"
+        ]
+
+        resultado = ejecutar_comando(comando)
+
+        if resultado.returncode != 0:
+            actualizar_job(
+                job_id,
+                estado="error",
+                error={
+                    "mensaje": "Error ejecutando Whisper",
+                    "stderr": resultado.stderr.strip(),
+                    "stdout": resultado.stdout.strip()
+                },
+                fin=time.time()
+            )
+            return
+
+        nombre_base = Path(filename).stem
+        archivos_detectados = esperar_salida(nombre_base, timeout=40)
+
+        if f"{nombre_base}.txt" not in archivos_detectados:
+            actualizar_job(
+                job_id,
+                estado="error",
+                error={
+                    "mensaje": "La transcripción terminó pero el TXT no apareció",
+                    "esperado": f"{nombre_base}.txt",
+                    "archivos_en_output": archivos_detectados
+                },
+                fin=time.time()
+            )
+            return
+
+        # Subir audio + resultados a GitHub
+        sincronizar_git()
+
+        fin = time.time()
+        actualizar_job(
+            job_id,
+            estado="completado",
+            fin=fin,
+            duracion_segundos=round(fin - JOBS[job_id]["inicio"], 2),
+            archivo_base=nombre_base,
+            archivos_generados={
+                "txt": f"{nombre_base}.txt",
+                "srt": f"{nombre_base}.srt",
+                "vtt": f"{nombre_base}.vtt",
+                "tsv": f"{nombre_base}.tsv",
+                "json": f"{nombre_base}.json"
+            },
+            urls={
+                "txt": f"/transcripcion/{nombre_base}.txt",
+                "descarga_txt": f"/descargar/{nombre_base}.txt",
+                "descarga_srt": f"/descargar/{nombre_base}.srt"
+            }
+        )
+
+    except Exception as e:
+        actualizar_job(
+            job_id,
+            estado="error",
+            error={"mensaje": str(e)},
+            fin=time.time()
+        )
 
 
 @app.on_event("startup")
@@ -93,7 +175,6 @@ def startup_event():
 
 @app.get("/")
 def servir_index():
-
     index_path = WEB_DIR / "index.html"
 
     if not index_path.exists():
@@ -109,7 +190,6 @@ def ping():
 
 @app.get("/files")
 def listar_archivos():
-
     input_files = [f.name for f in INPUT_DIR.glob("*") if f.is_file()]
     output_files = [f.name for f in OUTPUT_DIR.glob("*") if f.is_file()]
 
@@ -119,9 +199,54 @@ def listar_archivos():
     }
 
 
+@app.get("/trabajos")
+def listar_trabajos():
+    with JOBS_LOCK:
+        return JOBS
+
+
+@app.get("/estado/{job_id}")
+def estado_trabajo(job_id: str):
+    with JOBS_LOCK:
+        job = JOBS.get(job_id)
+
+    if not job:
+        raise HTTPException(status_code=404, detail="Trabajo no encontrado")
+
+    return job
+
+
+@app.get("/resultado/{job_id}")
+def resultado_trabajo(job_id: str):
+    with JOBS_LOCK:
+        job = JOBS.get(job_id)
+
+    if not job:
+        raise HTTPException(status_code=404, detail="Trabajo no encontrado")
+
+    if job["estado"] == "error":
+        raise HTTPException(status_code=500, detail=job.get("error", "Error en el trabajo"))
+
+    if job["estado"] != "completado":
+        return {
+            "ok": False,
+            "estado": job["estado"],
+            "mensaje": "La transcripción todavía no está lista"
+        }
+
+    return {
+        "ok": True,
+        "estado": job["estado"],
+        "archivo_entrada": job["archivo_entrada"],
+        "archivo_base": job["archivo_base"],
+        "duracion_segundos": job.get("duracion_segundos"),
+        "archivos_generados": job["archivos_generados"],
+        "urls": job["urls"]
+    }
+
+
 @app.get("/transcripcion/{nombre}", response_class=PlainTextResponse)
 def ver_transcripcion(nombre: str):
-
     ruta = OUTPUT_DIR / nombre
 
     if not ruta.exists():
@@ -132,7 +257,6 @@ def ver_transcripcion(nombre: str):
 
 @app.get("/descargar/{nombre}")
 def descargar_archivo(nombre: str):
-
     ruta = OUTPUT_DIR / nombre
 
     if not ruta.exists():
@@ -147,7 +271,6 @@ def descargar_archivo(nombre: str):
 
 @app.post("/transcribir")
 def transcribir(file: UploadFile = File(...)):
-
     asegurar_directorios()
 
     if not file.filename:
@@ -159,7 +282,6 @@ def transcribir(file: UploadFile = File(...)):
     destino = INPUT_DIR / file.filename
 
     total_bytes = 0
-
     with destino.open("wb") as buffer:
         while True:
             chunk = file.file.read(1024 * 1024)
@@ -170,64 +292,37 @@ def transcribir(file: UploadFile = File(...)):
 
             if total_bytes > MAX_FILE_SIZE_BYTES:
                 destino.unlink(missing_ok=True)
-                raise HTTPException(
-                    status_code=413,
-                    detail="Archivo demasiado grande"
-                )
+                raise HTTPException(status_code=413, detail="Archivo demasiado grande")
 
             buffer.write(chunk)
 
-    comando = [
-        "docker", "run", "--rm",
-        "-v", f"{BASE_DIR}:/srv/files:Z",
-        "whisper-local",
-        f"/srv/files/data/input/{file.filename}",
-        "--output_dir", "/srv/files/data/output",
-        "--language", "es",
-        "--model", "small",
-        "--compute_type", "int8",
-        "--output_format", "all"
-    ]
+    job_id = str(uuid.uuid4())
 
-    resultado = ejecutar_comando(comando)
+    with JOBS_LOCK:
+        JOBS[job_id] = {
+            "job_id": job_id,
+            "estado": "pendiente",
+            "archivo_entrada": file.filename,
+            "tamano_bytes": total_bytes,
+            "inicio": None,
+            "fin": None
+        }
 
-    if resultado.returncode != 0:
-        raise HTTPException(
-            status_code=500,
-            detail={
-                "mensaje": "Error ejecutando Whisper",
-                "stderr": resultado.stderr
-            }
-        )
-
-    nombre_base = Path(file.filename).stem
-
-    # pequeña pausa inicial para evitar carrera
-    time.sleep(2)
-
-    archivos_detectados = esperar_salida(nombre_base)
-
-    if f"{nombre_base}.txt" not in archivos_detectados:
-
-        raise HTTPException(
-            status_code=500,
-            detail={
-                "mensaje": "La transcripción terminó pero el TXT no apareció",
-                "esperado": f"{nombre_base}.txt",
-                "archivos_en_output": archivos_detectados
-            }
-        )
-
-    sincronizar_git()
+    hilo = threading.Thread(
+        target=procesar_transcripcion,
+        args=(job_id, file.filename),
+        daemon=True
+    )
+    hilo.start()
 
     return {
         "ok": True,
+        "mensaje": "Trabajo de transcripción creado",
+        "job_id": job_id,
+        "estado": "pendiente",
         "archivo_entrada": file.filename,
-        "archivo_base": nombre_base,
-        "archivos_detectados": archivos_detectados,
-        "url_txt": f"/transcripcion/{nombre_base}.txt",
-        "url_descarga_txt": f"/descargar/{nombre_base}.txt",
-        "url_descarga_srt": f"/descargar/{nombre_base}.srt"
+        "url_estado": f"/estado/{job_id}",
+        "url_resultado": f"/resultado/{job_id}"
     }
 
 
