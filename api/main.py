@@ -10,7 +10,7 @@ import uuid
 
 app = FastAPI(
     title="Servidor de Transcripción TFG",
-    version="2.0.0",
+    version="2.1.0",
     description="API REST para transcripción automática de audio con Whisper y Docker"
 )
 
@@ -30,7 +30,7 @@ WEB_DIR = BASE_DIR / "web"
 ALLOWED_EXTENSIONS = {".wav", ".mp3", ".m4a", ".flac", ".ogg", ".webm"}
 MAX_FILE_SIZE_BYTES = 100 * 1024 * 1024  # 100 MB
 
-# Almacenamiento simple en memoria para trabajos
+# Trabajos en memoria
 JOBS = {}
 JOBS_LOCK = threading.Lock()
 
@@ -55,7 +55,7 @@ def extension_permitida(nombre_archivo: str) -> bool:
 
 
 def sincronizar_git():
-    # No consideramos fatal que commit no tenga cambios
+    # No tratamos commit sin cambios como error fatal
     ejecutar_comando(["git", "add", "data/input", "data/output"], cwd=BASE_DIR)
     ejecutar_comando(
         ["git", "commit", "-m", "Añadidos audio y transcripción automática desde API"],
@@ -64,7 +64,13 @@ def sincronizar_git():
     ejecutar_comando(["git", "push"], cwd=BASE_DIR)
 
 
-def esperar_salida(nombre_base: str, timeout: int = 40):
+def esperar_salida(nombre_base: str, timeout: int = 90, pausa: float = 2.0):
+    """
+    Espera a que aparezca el TXT en data/output.
+    Devuelve un dict con:
+      - encontrado: bool
+      - archivos: lista de archivos detectados
+    """
     inicio = time.time()
 
     while time.time() - inicio < timeout:
@@ -72,14 +78,24 @@ def esperar_salida(nombre_base: str, timeout: int = 40):
             f.name for f in OUTPUT_DIR.glob(f"{nombre_base}.*")
             if f.is_file()
         ]
-        if f"{nombre_base}.txt" in archivos:
-            return archivos
-        time.sleep(1)
 
-    return [
+        if f"{nombre_base}.txt" in archivos:
+            return {
+                "encontrado": True,
+                "archivos": archivos
+            }
+
+        time.sleep(pausa)
+
+    archivos_finales = [
         f.name for f in OUTPUT_DIR.glob(f"{nombre_base}.*")
         if f.is_file()
     ]
+
+    return {
+        "encontrado": f"{nombre_base}.txt" in archivos_finales,
+        "archivos": archivos_finales
+    }
 
 
 def actualizar_job(job_id: str, **campos):
@@ -120,14 +136,19 @@ def procesar_transcripcion(job_id: str, filename: str):
             return
 
         nombre_base = Path(filename).stem
-        archivos_detectados = esperar_salida(nombre_base, timeout=40)
 
-        if f"{nombre_base}.txt" not in archivos_detectados:
+        # pequeña pausa inicial
+        time.sleep(2)
+
+        resultado_espera = esperar_salida(nombre_base, timeout=90, pausa=2.0)
+        archivos_detectados = resultado_espera["archivos"]
+
+        if not resultado_espera["encontrado"]:
             actualizar_job(
                 job_id,
                 estado="error",
                 error={
-                    "mensaje": "La transcripción terminó pero el TXT no apareció",
+                    "mensaje": "La transcripción terminó pero el TXT no apareció tras la espera ampliada",
                     "esperado": f"{nombre_base}.txt",
                     "archivos_en_output": archivos_detectados
                 },
@@ -135,7 +156,6 @@ def procesar_transcripcion(job_id: str, filename: str):
             )
             return
 
-        # Subir audio + resultados a GitHub
         sincronizar_git()
 
         fin = time.time()
