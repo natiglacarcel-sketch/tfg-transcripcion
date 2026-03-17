@@ -1,329 +1,72 @@
 <!DOCTYPE html>
-<html lang="es">
+<html>
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Servidor de Transcripción TFG</title>
-  <style>
-    body {
-      font-family: Arial, sans-serif;
-      margin: 40px;
-      background: #f5f7fa;
-      color: #222;
-    }
-
-    .container {
-      max-width: 850px;
-      margin: auto;
-      background: white;
-      padding: 24px;
-      border-radius: 12px;
-      box-shadow: 0 4px 14px rgba(0,0,0,0.08);
-    }
-
-    h1 {
-      margin-top: 0;
-      color: #1f4d8f;
-    }
-
-    p {
-      line-height: 1.5;
-    }
-
-    .bloque {
-      margin-top: 24px;
-      padding: 18px;
-      border: 1px solid #ddd;
-      border-radius: 10px;
-      background: #fafafa;
-    }
-
-    label {
-      font-weight: bold;
-      display: block;
-      margin-bottom: 10px;
-    }
-
-    input[type="file"] {
-      margin-bottom: 12px;
-    }
-
-    button {
-      background: #1f4d8f;
-      color: white;
-      border: none;
-      padding: 10px 18px;
-      border-radius: 8px;
-      cursor: pointer;
-      font-size: 15px;
-    }
-
-    button:hover {
-      background: #163966;
-    }
-
-    button:disabled {
-      background: #9aa8b8;
-      cursor: not-allowed;
-    }
-
-    .estado {
-      margin-top: 12px;
-      font-weight: bold;
-    }
-
-    .resultado {
-      margin-top: 20px;
-      padding: 16px;
-      border-radius: 10px;
-      background: #eef5ff;
-      border: 1px solid #c9dcf8;
-      white-space: pre-wrap;
-    }
-
-    .enlaces {
-      margin-top: 12px;
-    }
-
-    .enlaces a {
-      display: inline-block;
-      margin-right: 12px;
-      margin-top: 8px;
-      color: #1f4d8f;
-      text-decoration: none;
-      font-weight: bold;
-    }
-
-    .enlaces a:hover {
-      text-decoration: underline;
-    }
-
-    .error {
-      margin-top: 16px;
-      padding: 12px;
-      background: #ffe9e9;
-      color: #a11;
-      border: 1px solid #e5b1b1;
-      border-radius: 8px;
-      white-space: pre-wrap;
-    }
-
-    .footer {
-      margin-top: 30px;
-      font-size: 13px;
-      color: #666;
-    }
-
-    .pill {
-      display: inline-block;
-      padding: 4px 10px;
-      border-radius: 999px;
-      font-size: 13px;
-      font-weight: bold;
-      margin-left: 8px;
-    }
-
-    .pendiente {
-      background: #fff4cc;
-      color: #8a6d00;
-    }
-
-    .procesando {
-      background: #d9ecff;
-      color: #0b5aa2;
-    }
-
-    .completado {
-      background: #daf5dc;
-      color: #1d6b24;
-    }
-
-    .error-pill {
-      background: #ffe1e1;
-      color: #a11;
-    }
-
-    .mono {
-      font-family: Consolas, monospace;
-    }
-  </style>
+  <title>Transcriptor TFG</title>
 </head>
 <body>
-  <div class="container">
-    <h1>Servidor de Transcripción TFG</h1>
-    <p>
-      Interfaz web simple para subir un audio, crear un trabajo de transcripción y
-      consultar su estado hasta obtener el resultado.
-    </p>
 
-    <div class="bloque">
-      <label for="audioFile">Selecciona un archivo de audio</label>
-      <input type="file" id="audioFile" accept=".wav,.mp3,.m4a,.flac,.ogg,.webm">
-      <br>
-      <button id="btnTranscribir">Transcribir</button>
+<h1>Transcripción de audio</h1>
 
-      <div class="estado" id="estado">Esperando archivo...</div>
-      <div class="estado" id="jobInfo"></div>
-      <div class="error" id="error" style="display:none;"></div>
-    </div>
+<input type="file" id="file"><br><br>
 
-    <div class="bloque" id="bloqueResultado" style="display:none;">
-      <h2>Resultado</h2>
-      <div id="infoResultado"></div>
-      <div class="enlaces" id="enlacesResultado"></div>
-      <div class="resultado" id="textoResultado"></div>
-    </div>
+<label>Modelo:</label>
+<select id="modelo">
+  <option value="tiny">Tiny</option>
+  <option value="base">Base</option>
+  <option value="small" selected>Small</option>
+</select><br><br>
 
-    <div class="footer">
-      TFG - Sistema de Transcripción Automática con Whisper, Docker y FastAPI
-    </div>
-  </div>
+<button onclick="enviar()">Transcribir</button>
 
-  <script>
-    const API_BASE = "";
+<p id="estado"></p>
+<pre id="resultado"></pre>
 
-    const btnTranscribir = document.getElementById("btnTranscribir");
-    const audioFile = document.getElementById("audioFile");
-    const estado = document.getElementById("estado");
-    const jobInfo = document.getElementById("jobInfo");
-    const errorDiv = document.getElementById("error");
-    const bloqueResultado = document.getElementById("bloqueResultado");
-    const infoResultado = document.getElementById("infoResultado");
-    const enlacesResultado = document.getElementById("enlacesResultado");
-    const textoResultado = document.getElementById("textoResultado");
+<script>
+async function enviar() {
+    const file = document.getElementById("file").files[0];
+    const modelo = document.getElementById("modelo").value;
 
-    function mostrarError(mensaje) {
-      errorDiv.style.display = "block";
-      errorDiv.textContent = mensaje;
-    }
+    let formData = new FormData();
+    formData.append("file", file);
+    formData.append("model", modelo);
 
-    function ocultarError() {
-      errorDiv.style.display = "none";
-      errorDiv.textContent = "";
-    }
-
-    function estadoHtml(estadoTrabajo) {
-      if (estadoTrabajo === "pendiente") {
-        return `<span class="pill pendiente">pendiente</span>`;
-      }
-      if (estadoTrabajo === "procesando") {
-        return `<span class="pill procesando">procesando</span>`;
-      }
-      if (estadoTrabajo === "completado") {
-        return `<span class="pill completado">completado</span>`;
-      }
-      return `<span class="pill error-pill">error</span>`;
-    }
-
-    async function esperarResultado(jobId) {
-      const maxIntentos = 120; // aprox 4 min consultando cada 2 segundos
-      let intentos = 0;
-
-      while (intentos < maxIntentos) {
-        const responseEstado = await fetch(`${API_BASE}/estado/${jobId}`);
-        const estadoData = await responseEstado.json();
-
-        if (!responseEstado.ok) {
-          throw new Error(JSON.stringify(estadoData, null, 2));
-        }
-
-        estado.innerHTML = `Estado del trabajo: ${estadoHtml(estadoData.estado)}`;
-
-        if (estadoData.estado === "completado") {
-          const responseResultado = await fetch(`${API_BASE}/resultado/${jobId}`);
-          const resultadoData = await responseResultado.json();
-
-          if (!responseResultado.ok) {
-            throw new Error(JSON.stringify(resultadoData, null, 2));
-          }
-
-          return resultadoData;
-        }
-
-        if (estadoData.estado === "error") {
-          throw new Error(JSON.stringify(estadoData.error || estadoData, null, 2));
-        }
-
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        intentos += 1;
-      }
-
-      throw new Error("Tiempo de espera agotado. El trabajo sigue sin completarse.");
-    }
-
-    btnTranscribir.addEventListener("click", async () => {
-      ocultarError();
-      bloqueResultado.style.display = "none";
-      textoResultado.textContent = "";
-      enlacesResultado.innerHTML = "";
-      infoResultado.innerHTML = "";
-      jobInfo.innerHTML = "";
-
-      if (!audioFile.files.length) {
-        mostrarError("Debes seleccionar un archivo de audio.");
-        return;
-      }
-
-      const file = audioFile.files[0];
-      const formData = new FormData();
-      formData.append("file", file);
-
-      try {
-        btnTranscribir.disabled = true;
-        estado.textContent = "Creando trabajo de transcripción...";
-
-        const response = await fetch(`${API_BASE}/transcribir`, {
-          method: "POST",
-          body: formData
-        });
-
-        let data;
-        const contentType = response.headers.get("content-type") || "";
-
-        if (contentType.includes("application/json")) {
-          data = await response.json();
-        } else {
-          const text = await response.text();
-          throw new Error(text);
-        }
-
-        if (!response.ok) {
-          throw new Error(JSON.stringify(data, null, 2));
-        }
-
-        const jobId = data.job_id;
-        jobInfo.innerHTML = `<span class="mono">job_id: ${jobId}</span>`;
-
-        estado.innerHTML = `Estado del trabajo: ${estadoHtml(data.estado)}`;
-
-        const resultado = await esperarResultado(jobId);
-
-        estado.innerHTML = `Estado del trabajo: ${estadoHtml("completado")}`;
-        bloqueResultado.style.display = "block";
-
-        infoResultado.innerHTML = `
-          <p><strong>Archivo de entrada:</strong> ${resultado.archivo_entrada}</p>
-          <p><strong>Archivo base:</strong> ${resultado.archivo_base}</p>
-          <p><strong>Duración:</strong> ${resultado.duracion_segundos ?? "N/D"} segundos</p>
-        `;
-
-        enlacesResultado.innerHTML = `
-          <a href="${resultado.urls.txt}" target="_blank">Ver transcripción TXT</a>
-          <a href="${resultado.urls.descarga_txt}" target="_blank">Descargar TXT</a>
-          <a href="${resultado.urls.descarga_srt}" target="_blank">Descargar SRT</a>
-        `;
-
-        const txtResponse = await fetch(resultado.urls.txt);
-        const txtContent = await txtResponse.text();
-        textoResultado.textContent = txtContent;
-
-      } catch (error) {
-        estado.textContent = "Error durante la transcripción.";
-        mostrarError(error.message);
-      } finally {
-        btnTranscribir.disabled = false;
-      }
+    let res = await fetch("/transcribir", {
+        method: "POST",
+        body: formData
     });
-  </script>
+
+    let data = await res.json();
+    let job = data.job_id;
+
+    document.getElementById("estado").innerText = "En proceso...";
+
+    let intervalo = setInterval(async () => {
+        let r = await fetch("/estado/" + job);
+        let d = await r.json();
+
+        document.getElementById("estado").innerText = d.estado;
+
+        if (d.estado === "completado") {
+            clearInterval(intervalo);
+
+            let txt = await fetch(d.urls.txt);
+            let contenido = await txt.text();
+
+            document.getElementById("resultado").innerText =
+                "Modelo: " + d.modelo + "\n" +
+                "Tiempo: " + d.duracion + " s\n\n" +
+                contenido;
+        }
+
+        if (d.estado === "error") {
+            clearInterval(intervalo);
+            document.getElementById("estado").innerText = "Error: " + d.error;
+        }
+
+    }, 2000);
+}
+</script>
+
 </body>
 </html>
