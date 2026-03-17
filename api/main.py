@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, Form
 from fastapi.responses import PlainTextResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -8,11 +8,7 @@ import threading
 import time
 import uuid
 
-app = FastAPI(
-    title="Servidor de Transcripción TFG",
-    version="2.3.0",
-    description="API REST para transcripción automática de audio con Whisper y Docker"
-)
+app = FastAPI(title="Servidor de Transcripción TFG", version="3.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -22,87 +18,38 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Rutas dentro del contenedor API
 APP_DIR = Path("/app")
 INPUT_DIR = APP_DIR / "data" / "input"
 OUTPUT_DIR = APP_DIR / "data" / "output"
 WEB_DIR = APP_DIR / "web"
 
-# Ruta REAL del proyecto en el host
 HOST_PROJECT_DIR = "/home/nati/tfg-transcripcion"
 
 ALLOWED_EXTENSIONS = {".wav", ".mp3", ".m4a", ".flac", ".ogg", ".webm"}
-MAX_FILE_SIZE_BYTES = 100 * 1024 * 1024  # 100 MB
+MODELOS_VALIDOS = {"tiny", "base", "small"}
 
 JOBS = {}
-JOBS_LOCK = threading.Lock()
+LOCK = threading.Lock()
 
 
-def ejecutar_comando(comando, cwd=None):
-    return subprocess.run(
-        comando,
-        cwd=cwd,
-        capture_output=True,
-        text=True
-    )
+def ejecutar(comando):
+    return subprocess.run(comando, capture_output=True, text=True)
 
 
-def asegurar_directorios():
-    INPUT_DIR.mkdir(parents=True, exist_ok=True)
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    WEB_DIR.mkdir(parents=True, exist_ok=True)
-
-
-def extension_permitida(nombre_archivo: str) -> bool:
-    return Path(nombre_archivo).suffix.lower() in ALLOWED_EXTENSIONS
-
-
-def sincronizar_git():
-    ejecutar_comando(["git", "add", "data/input", "data/output"], cwd=APP_DIR)
-    ejecutar_comando(
-        ["git", "commit", "-m", "Añadidos audio y transcripción automática desde API"],
-        cwd=APP_DIR
-    )
-    ejecutar_comando(["git", "push"], cwd=APP_DIR)
-
-
-def esperar_salida(nombre_base: str, timeout: int = 90, pausa: float = 2.0):
+def esperar_txt(nombre_base, timeout=90):
     inicio = time.time()
-
     while time.time() - inicio < timeout:
-        archivos = [
-            f.name for f in OUTPUT_DIR.glob(f"{nombre_base}.*")
-            if f.is_file()
-        ]
-
-        if f"{nombre_base}.txt" in archivos:
-            return {
-                "encontrado": True,
-                "archivos": archivos
-            }
-
-        time.sleep(pausa)
-
-    archivos_finales = [
-        f.name for f in OUTPUT_DIR.glob(f"{nombre_base}.*")
-        if f.is_file()
-    ]
-
-    return {
-        "encontrado": f"{nombre_base}.txt" in archivos_finales,
-        "archivos": archivos_finales
-    }
+        if (OUTPUT_DIR / f"{nombre_base}.txt").exists():
+            return True
+        time.sleep(2)
+    return False
 
 
-def actualizar_job(job_id: str, **campos):
-    with JOBS_LOCK:
-        if job_id in JOBS:
-            JOBS[job_id].update(campos)
-
-
-def procesar_transcripcion(job_id: str, filename: str):
+def procesar(job_id, filename, model):
     try:
-        actualizar_job(job_id, estado="procesando", inicio=time.time())
+        with LOCK:
+            JOBS[job_id]["estado"] = "procesando"
+            JOBS[job_id]["inicio"] = time.time()
 
         comando = [
             "docker", "run", "--rm",
@@ -111,234 +58,111 @@ def procesar_transcripcion(job_id: str, filename: str):
             f"/srv/files/data/input/{filename}",
             "--output_dir", "/srv/files/data/output",
             "--language", "es",
-            "--model", "small",
+            "--model", model,
             "--compute_type", "int8",
             "--output_format", "all"
         ]
 
-        resultado = ejecutar_comando(comando)
+        resultado = ejecutar(comando)
 
         if resultado.returncode != 0:
-            actualizar_job(
-                job_id,
-                estado="error",
-                error={
-                    "mensaje": "Error ejecutando Whisper",
-                    "stderr": resultado.stderr.strip(),
-                    "stdout": resultado.stdout.strip()
-                },
-                fin=time.time()
-            )
-            return
+            raise Exception(resultado.stderr)
 
         nombre_base = Path(filename).stem
 
-        time.sleep(2)
-
-        resultado_espera = esperar_salida(nombre_base, timeout=90, pausa=2.0)
-        archivos_detectados = resultado_espera["archivos"]
-
-        if not resultado_espera["encontrado"]:
-            actualizar_job(
-                job_id,
-                estado="error",
-                error={
-                    "mensaje": "La transcripción terminó pero el TXT no apareció tras la espera ampliada",
-                    "esperado": f"{nombre_base}.txt",
-                    "archivos_en_output": archivos_detectados
-                },
-                fin=time.time()
-            )
-            return
-
-        sincronizar_git()
+        if not esperar_txt(nombre_base):
+            raise Exception("TXT no generado")
 
         fin = time.time()
-        actualizar_job(
-            job_id,
-            estado="completado",
-            fin=fin,
-            duracion_segundos=round(fin - JOBS[job_id]["inicio"], 2),
-            archivo_base=nombre_base,
-            archivos_generados={
-                "txt": f"{nombre_base}.txt",
-                "srt": f"{nombre_base}.srt",
-                "vtt": f"{nombre_base}.vtt",
-                "tsv": f"{nombre_base}.tsv",
-                "json": f"{nombre_base}.json"
-            },
-            urls={
-                "txt": f"/transcripcion/{nombre_base}.txt",
-                "descarga_txt": f"/descargar/{nombre_base}.txt",
-                "descarga_srt": f"/descargar/{nombre_base}.srt"
-            }
-        )
+
+        with LOCK:
+            JOBS[job_id].update({
+                "estado": "completado",
+                "fin": fin,
+                "duracion": round(fin - JOBS[job_id]["inicio"], 2),
+                "modelo": model,
+                "archivo_base": nombre_base,
+                "urls": {
+                    "txt": f"/transcripcion/{nombre_base}.txt",
+                    "descarga_txt": f"/descargar/{nombre_base}.txt",
+                    "descarga_srt": f"/descargar/{nombre_base}.srt"
+                }
+            })
 
     except Exception as e:
-        actualizar_job(
-            job_id,
-            estado="error",
-            error={"mensaje": str(e)},
-            fin=time.time()
-        )
-
-
-@app.on_event("startup")
-def startup_event():
-    asegurar_directorios()
-
-
-@app.get("/")
-def servir_index():
-    index_path = WEB_DIR / "index.html"
-
-    if not index_path.exists():
-        raise HTTPException(status_code=404, detail="index.html no encontrado")
-
-    return FileResponse(index_path)
+        with LOCK:
+            JOBS[job_id]["estado"] = "error"
+            JOBS[job_id]["error"] = str(e)
 
 
 @app.get("/ping")
 def ping():
-    return {"ok": True, "mensaje": "API funcionando"}
+    return {"ok": True}
 
 
-@app.get("/files")
-def listar_archivos():
-    input_files = [f.name for f in INPUT_DIR.glob("*") if f.is_file()]
-    output_files = [f.name for f in OUTPUT_DIR.glob("*") if f.is_file()]
+@app.get("/")
+def home():
+    return FileResponse(WEB_DIR / "index.html")
+
+
+@app.post("/transcribir")
+def transcribir(
+    file: UploadFile = File(...),
+    model: str = Form("small")
+):
+    if model not in MODELOS_VALIDOS:
+        raise HTTPException(400, "Modelo inválido")
+
+    destino = INPUT_DIR / file.filename
+    with destino.open("wb") as f:
+        f.write(file.file.read())
+
+    job_id = str(uuid.uuid4())
+
+    with LOCK:
+        JOBS[job_id] = {
+            "estado": "pendiente",
+            "archivo": file.filename
+        }
+
+    threading.Thread(
+        target=procesar,
+        args=(job_id, file.filename, model),
+        daemon=True
+    ).start()
 
     return {
-        "input_files": sorted(input_files),
-        "output_files": sorted(output_files)
+        "job_id": job_id,
+        "estado": "pendiente"
     }
 
 
-@app.get("/trabajos")
-def listar_trabajos():
-    with JOBS_LOCK:
-        return JOBS
-
-
 @app.get("/estado/{job_id}")
-def estado_trabajo(job_id: str):
-    with JOBS_LOCK:
-        job = JOBS.get(job_id)
+def estado(job_id: str):
+    return JOBS.get(job_id, {"error": "no existe"})
+
+
+@app.get("/resultado/{job_id}")
+def resultado(job_id: str):
+    job = JOBS.get(job_id)
 
     if not job:
-        raise HTTPException(status_code=404, detail="Trabajo no encontrado")
+        raise HTTPException(404)
+
+    if job["estado"] != "completado":
+        return {"estado": job["estado"]}
 
     return job
 
 
-@app.get("/resultado/{job_id}")
-def resultado_trabajo(job_id: str):
-    with JOBS_LOCK:
-        job = JOBS.get(job_id)
-
-    if not job:
-        raise HTTPException(status_code=404, detail="Trabajo no encontrado")
-
-    if job["estado"] == "error":
-        raise HTTPException(status_code=500, detail=job.get("error", "Error en el trabajo"))
-
-    if job["estado"] != "completado":
-        return {
-            "ok": False,
-            "estado": job["estado"],
-            "mensaje": "La transcripción todavía no está lista"
-        }
-
-    return {
-        "ok": True,
-        "estado": job["estado"],
-        "archivo_entrada": job["archivo_entrada"],
-        "archivo_base": job["archivo_base"],
-        "duracion_segundos": job.get("duracion_segundos"),
-        "archivos_generados": job["archivos_generados"],
-        "urls": job["urls"]
-    }
-
-
 @app.get("/transcripcion/{nombre}", response_class=PlainTextResponse)
-def ver_transcripcion(nombre: str):
-    ruta = OUTPUT_DIR / nombre
-
-    if not ruta.exists():
-        raise HTTPException(status_code=404, detail="Transcripción no encontrada")
-
-    return ruta.read_text(encoding="utf-8")
+def ver(nombre: str):
+    return (OUTPUT_DIR / nombre).read_text()
 
 
 @app.get("/descargar/{nombre}")
-def descargar_archivo(nombre: str):
-    ruta = OUTPUT_DIR / nombre
-
-    if not ruta.exists():
-        raise HTTPException(status_code=404, detail="Archivo no encontrado")
-
-    return FileResponse(
-        path=ruta,
-        filename=ruta.name,
-        media_type="application/octet-stream"
-    )
-
-
-@app.post("/transcribir")
-def transcribir(file: UploadFile = File(...)):
-    asegurar_directorios()
-
-    if not file.filename:
-        raise HTTPException(status_code=400, detail="Archivo inválido")
-
-    if not extension_permitida(file.filename):
-        raise HTTPException(status_code=400, detail="Formato de audio no permitido")
-
-    destino = INPUT_DIR / file.filename
-
-    total_bytes = 0
-    with destino.open("wb") as buffer:
-        while True:
-            chunk = file.file.read(1024 * 1024)
-            if not chunk:
-                break
-
-            total_bytes += len(chunk)
-
-            if total_bytes > MAX_FILE_SIZE_BYTES:
-                destino.unlink(missing_ok=True)
-                raise HTTPException(status_code=413, detail="Archivo demasiado grande")
-
-            buffer.write(chunk)
-
-    job_id = str(uuid.uuid4())
-
-    with JOBS_LOCK:
-        JOBS[job_id] = {
-            "job_id": job_id,
-            "estado": "pendiente",
-            "archivo_entrada": file.filename,
-            "tamano_bytes": total_bytes,
-            "inicio": None,
-            "fin": None
-        }
-
-    hilo = threading.Thread(
-        target=procesar_transcripcion,
-        args=(job_id, file.filename),
-        daemon=True
-    )
-    hilo.start()
-
-    return {
-        "ok": True,
-        "mensaje": "Trabajo de transcripción creado",
-        "job_id": job_id,
-        "estado": "pendiente",
-        "archivo_entrada": file.filename,
-        "url_estado": f"/estado/{job_id}",
-        "url_resultado": f"/resultado/{job_id}"
-    }
+def descargar(nombre: str):
+    return FileResponse(OUTPUT_DIR / nombre)
 
 
 app.mount("/web", StaticFiles(directory=WEB_DIR), name="web")
