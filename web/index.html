@@ -1,72 +1,378 @@
 <!DOCTYPE html>
-<html>
+<html lang="es">
 <head>
   <meta charset="UTF-8">
-  <title>Transcriptor TFG</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Servidor de Transcripción TFG</title>
+  <style>
+    :root {
+      --bg: #f4f7fb;
+      --card: #ffffff;
+      --text: #1f2937;
+      --muted: #6b7280;
+      --primary: #1d4ed8;
+      --primary-hover: #1e40af;
+      --border: #dbe3ef;
+      --success-bg: #dcfce7;
+      --success-text: #166534;
+      --warn-bg: #fef3c7;
+      --warn-text: #92400e;
+      --info-bg: #dbeafe;
+      --info-text: #1d4ed8;
+      --error-bg: #fee2e2;
+      --error-text: #991b1b;
+      --shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
+      --radius: 16px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    .page {
+      max-width: 900px;
+      margin: 40px auto;
+      padding: 0 20px;
+    }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 28px;
+      margin-bottom: 24px;
+    }
+
+    h1 {
+      margin-top: 0;
+      margin-bottom: 10px;
+      font-size: 2.2rem;
+      color: var(--primary);
+    }
+
+    .subtitle {
+      margin-top: 0;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+
+    .field {
+      margin-bottom: 18px;
+    }
+
+    label {
+      display: block;
+      margin-bottom: 8px;
+      font-weight: 700;
+    }
+
+    input[type="file"],
+    select {
+      padding: 10px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: #fff;
+      font-size: 15px;
+    }
+
+    .actions {
+      margin-top: 10px;
+    }
+
+    button {
+      background: var(--primary);
+      color: white;
+      border: none;
+      border-radius: 10px;
+      padding: 12px 18px;
+      font-size: 15px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background: var(--primary-hover);
+    }
+
+    button:disabled {
+      background: #94a3b8;
+      cursor: not-allowed;
+    }
+
+    .status-line {
+      margin-top: 18px;
+      font-weight: 700;
+    }
+
+    .pill {
+      display: inline-block;
+      padding: 6px 10px;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 700;
+      margin-left: 8px;
+    }
+
+    .pendiente {
+      background: var(--warn-bg);
+      color: var(--warn-text);
+    }
+
+    .procesando {
+      background: var(--info-bg);
+      color: var(--info-text);
+    }
+
+    .completado {
+      background: var(--success-bg);
+      color: var(--success-text);
+    }
+
+    .error-pill {
+      background: var(--error-bg);
+      color: var(--error-text);
+    }
+
+    .job-box,
+    .error-box,
+    .result-box {
+      margin-top: 18px;
+      padding: 16px;
+      border-radius: 12px;
+    }
+
+    .job-box {
+      background: #f8fafc;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      font-family: Consolas, monospace;
+    }
+
+    .error-box {
+      background: var(--error-bg);
+      border: 1px solid #fecaca;
+      color: var(--error-text);
+      white-space: pre-wrap;
+    }
+
+    .result-box {
+      background: #eff6ff;
+      border: 1px solid #bfdbfe;
+    }
+
+    .meta {
+      margin-bottom: 14px;
+      line-height: 1.6;
+    }
+
+    .downloads {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 14px;
+      margin-bottom: 16px;
+    }
+
+    .download-link {
+      text-decoration: none;
+      color: var(--primary);
+      font-weight: 700;
+      border: 1px solid #bfdbfe;
+      background: white;
+      padding: 9px 12px;
+      border-radius: 10px;
+    }
+
+    .download-link:hover {
+      background: #eff6ff;
+    }
+
+    pre {
+      margin: 0;
+      padding: 16px;
+      background: white;
+      border: 1px solid #dbeafe;
+      border-radius: 12px;
+      white-space: pre-wrap;
+      line-height: 1.5;
+      overflow-x: auto;
+    }
+
+    .footer {
+      text-align: center;
+      color: var(--muted);
+      font-size: 13px;
+      margin-top: 18px;
+    }
+  </style>
 </head>
 <body>
+  <div class="page">
+    <div class="card">
+      <h1>Servidor de Transcripción TFG</h1>
+      <p class="subtitle">
+        Plataforma de transcripción automática con Whisper. Permite subir audios,
+        procesarlos en segundo plano y descargar los resultados en varios formatos.
+      </p>
 
-<h1>Transcripción de audio</h1>
+      <div class="field">
+        <label for="file">Archivo de audio</label>
+        <input type="file" id="file" accept=".wav,.mp3,.m4a,.flac,.ogg,.webm">
+      </div>
 
-<input type="file" id="file"><br><br>
+      <div class="field">
+        <label for="modelo">Modelo Whisper</label>
+        <select id="modelo">
+          <option value="tiny">Tiny · más rápido</option>
+          <option value="base">Base · equilibrado</option>
+          <option value="small" selected>Small · más preciso</option>
+        </select>
+      </div>
 
-<label>Modelo:</label>
-<select id="modelo">
-  <option value="tiny">Tiny</option>
-  <option value="base">Base</option>
-  <option value="small" selected>Small</option>
-</select><br><br>
+      <div class="actions">
+        <button id="btnTranscribir" onclick="enviar()">Transcribir</button>
+      </div>
 
-<button onclick="enviar()">Transcribir</button>
+      <div class="status-line" id="estado">Esperando archivo...</div>
+      <div class="job-box" id="jobBox" style="display:none;"></div>
+      <div class="error-box" id="errorBox" style="display:none;"></div>
+    </div>
 
-<p id="estado"></p>
-<pre id="resultado"></pre>
+    <div class="card" id="resultadoCard" style="display:none;">
+      <h2>Resultado</h2>
+      <div class="result-box">
+        <div class="meta" id="metaResultado"></div>
+        <div class="downloads" id="downloads"></div>
+        <pre id="resultadoTexto"></pre>
+      </div>
+    </div>
 
-<script>
-async function enviar() {
-    const file = document.getElementById("file").files[0];
-    const modelo = document.getElementById("modelo").value;
+    <div class="footer">
+      TFG · Sistema de Transcripción Automática con Whisper, Docker y FastAPI
+    </div>
+  </div>
 
-    let formData = new FormData();
-    formData.append("file", file);
-    formData.append("model", modelo);
+  <script>
+    async function enviar() {
+      const fileInput = document.getElementById("file");
+      const modelo = document.getElementById("modelo").value;
+      const estado = document.getElementById("estado");
+      const jobBox = document.getElementById("jobBox");
+      const errorBox = document.getElementById("errorBox");
+      const resultadoCard = document.getElementById("resultadoCard");
+      const metaResultado = document.getElementById("metaResultado");
+      const downloads = document.getElementById("downloads");
+      const resultadoTexto = document.getElementById("resultadoTexto");
+      const boton = document.getElementById("btnTranscribir");
 
-    let res = await fetch("/transcribir", {
-        method: "POST",
-        body: formData
-    });
+      errorBox.style.display = "none";
+      errorBox.textContent = "";
+      resultadoCard.style.display = "none";
+      metaResultado.innerHTML = "";
+      downloads.innerHTML = "";
+      resultadoTexto.textContent = "";
+      jobBox.style.display = "none";
+      jobBox.textContent = "";
 
-    let data = await res.json();
-    let job = data.job_id;
+      if (!fileInput.files.length) {
+        errorBox.style.display = "block";
+        errorBox.textContent = "Debes seleccionar un archivo.";
+        return;
+      }
 
-    document.getElementById("estado").innerText = "En proceso...";
+      const file = fileInput.files[0];
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("model", modelo);
 
-    let intervalo = setInterval(async () => {
-        let r = await fetch("/estado/" + job);
-        let d = await r.json();
+      try {
+        boton.disabled = true;
+        estado.innerHTML = `Estado: <span class="pill pendiente">pendiente</span>`;
 
-        document.getElementById("estado").innerText = d.estado;
+        const response = await fetch("/transcribir", {
+          method: "POST",
+          body: formData
+        });
 
-        if (d.estado === "completado") {
-            clearInterval(intervalo);
+        const data = await response.json();
 
-            let txt = await fetch(d.urls.txt);
-            let contenido = await txt.text();
-
-            document.getElementById("resultado").innerText =
-                "Modelo: " + d.modelo + "\n" +
-                "Tiempo: " + d.duracion + " s\n\n" +
-                contenido;
+        if (!response.ok) {
+          throw new Error(JSON.stringify(data, null, 2));
         }
 
-        if (d.estado === "error") {
-            clearInterval(intervalo);
-            document.getElementById("estado").innerText = "Error: " + d.error;
+        const jobId = data.job_id;
+        jobBox.style.display = "block";
+        jobBox.textContent = `job_id: ${jobId}`;
+
+        let completado = false;
+
+        while (!completado) {
+          await new Promise(resolve => setTimeout(resolve, 2000));
+
+          const r = await fetch(`/estado/${jobId}`);
+          const estadoJob = await r.json();
+
+          if (estadoJob.estado === "pendiente") {
+            estado.innerHTML = `Estado: <span class="pill pendiente">pendiente</span>`;
+          } else if (estadoJob.estado === "procesando") {
+            estado.innerHTML = `Estado: <span class="pill procesando">procesando</span>`;
+          } else if (estadoJob.estado === "error") {
+            estado.innerHTML = `Estado: <span class="pill error-pill">error</span>`;
+            errorBox.style.display = "block";
+            errorBox.textContent = JSON.stringify(estadoJob.error, null, 2);
+            return;
+          } else if (estadoJob.estado === "completado") {
+            estado.innerHTML = `Estado: <span class="pill completado">completado</span>`;
+            completado = true;
+
+            const rr = await fetch(`/resultado/${jobId}`);
+            const resultado = await rr.json();
+
+            metaResultado.innerHTML = `
+              <strong>Archivo:</strong> ${resultado.archivo_entrada}<br>
+              <strong>Modelo:</strong> ${resultado.modelo}<br>
+              <strong>Tiempo:</strong> ${resultado.duracion_segundos} s
+            `;
+
+            const links = [
+              { label: "Ver TXT", url: resultado.urls.ver_txt || resultado.urls.txt },
+              { label: "Descargar TXT", url: resultado.urls.descarga_txt },
+              { label: "Descargar SRT", url: resultado.urls.descarga_srt },
+              { label: "Descargar VTT", url: resultado.urls.descarga_vtt },
+              { label: "Descargar TSV", url: resultado.urls.descarga_tsv },
+              { label: "Descargar JSON", url: resultado.urls.descarga_json }
+            ];
+
+            downloads.innerHTML = links
+              .filter(link => !!link.url)
+              .map(link => `<a class="download-link" href="${link.url}" target="_blank">${link.label}</a>`)
+              .join("");
+
+            const txtUrl = resultado.urls.ver_txt || resultado.urls.txt;
+            const txtResp = await fetch(txtUrl);
+            const txt = await txtResp.text();
+            resultadoTexto.textContent = txt;
+
+            resultadoCard.style.display = "block";
+          }
         }
 
-    }, 2000);
-}
-</script>
-
+      } catch (e) {
+        estado.innerHTML = `Estado: <span class="pill error-pill">error</span>`;
+        errorBox.style.display = "block";
+        errorBox.textContent = e.message;
+      } finally {
+        boton.disabled = false;
+      }
+    }
+  </script>
 </body>
 </html>
