@@ -85,7 +85,10 @@ def procesar(job_id, filename, model):
                 "urls": {
                     "txt": f"/transcripcion/{nombre_base}.txt",
                     "descarga_txt": f"/descargar/{nombre_base}.txt",
-                    "descarga_srt": f"/descargar/{nombre_base}.srt"
+                    "descarga_srt": f"/descargar/{nombre_base}.srt",
+                    "descarga_vtt": f"/descargar/{nombre_base}.vtt",
+                    "descarga_tsv": f"/descargar/{nombre_base}.tsv",
+                    "descarga_json": f"/descargar/{nombre_base}.json"                    
                 }
             })
 
