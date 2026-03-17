@@ -337,9 +337,9 @@
             const resultado = await rr.json();
 
             metaResultado.innerHTML = `
-              <strong>Archivo:</strong> ${resultado.archivo_entrada}<br>
+              <strong>Archivo:</strong> ${resultado.archivo_base}<br>
               <strong>Modelo:</strong> ${resultado.modelo}<br>
-              <strong>Tiempo:</strong> ${resultado.duracion_segundos} s
+              <strong>Tiempo:</strong> ${resultado.duracion} s
             `;
 
             const links = [
