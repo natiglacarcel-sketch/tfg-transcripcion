@@ -1,8 +1,4 @@
 1
-00:00:00,000 --> 00:00:05,000
-Aminante no el camino es que se caminó la andar a la andarza, se caminó y al volver la vista atrás.
-
-2
-00:00:05,000 --> 00:00:09,000
-Se ve la senda que nunca más se ha de volver a pisar.
+00:00:00,000 --> 00:00:09,000
+El caminante no hay camino, se hace camino al andar. Al andar se hace camino y al volver la vista atrás se ve la senda que nunca más se ha de volver a pisar.
 
