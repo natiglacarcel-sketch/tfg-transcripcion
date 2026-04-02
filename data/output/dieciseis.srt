@@ -1,8 +1,0 @@
-1
-00:00:00,000 --> 00:00:05,080
-¿Sería probar si esta de verdad funciona este es un audio en el que quiero saber
-
-2
-00:00:05,080 --> 00:00:08,800
-la funcionalidad de todos los aplicaciones que puedan existir?
-
